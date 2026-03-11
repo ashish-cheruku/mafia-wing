@@ -1,251 +1,227 @@
-# Agentic Mafia: Multi-Agent Social Deduction Game
+# Mafia Wing
 
-A sophisticated multi-agent system where AI agents play the social deduction game Mafia with realistic conversation dynamics, strategic reasoning, and emergent behaviors.
+A real-time multiplayer Mafia game powered by 8 AI agents, each with a distinct personality. Watch the agents discuss, deceive, vote, and eliminate each other — streamed live to a web UI.
 
-## 🎯 Project Overview
+---
 
-This project implements a complete Mafia game using AI agents with distinct personalities who engage in realistic discussions, voting, and strategic gameplay. The system features:
+## Overview
 
-- **Realistic Social Dynamics**: Agents respond to each other with personality-driven communication
-- **Strategic Gameplay**: Role-specific behaviors (Mafia, Doctor, Detective, Villager)
-- **Complete Game Implementation**: Night phases, day discussions, voting with defense phases
-- **Comprehensive Logging**: Detailed game logs with agent contexts and decision reasoning
+Mafia Wing runs a complete game of Mafia autonomously. Eight AI personalities are assigned roles (Mafia, Doctor, Detective, Villager) at random each game. The game engine drives night phases, day discussions, voting, trials, and defenses. Every action is streamed in real time to a Next.js frontend via Server-Sent Events.
 
-## 📁 Project Structure
+No human input is required — start a game and watch it play out.
+
+---
+
+## Players
+
+| Player | Personality |
+|---|---|
+| Revant | Paranoid and suspicious — questions everyone, changes suspects frequently |
+| Thisya | Charming and smooth — deflects with compliments, hard to pin down |
+| Baashish | Logical and methodical — tracks patterns, calls out contradictions |
+| Gauranga | Emotional and intuitive — acts on gut feeling, struggles to explain reasoning |
+| Gian Reddy | Quiet and observant — rarely speaks, but insightful when he does |
+| Harryshit | Impulsive and chaotic — random accusations, loves stirring the pot |
+| Cheruku | Blunt and direct — no patience for games, says exactly what he thinks |
+| Remo Sai | Strategic and calculating — gathers intel quietly, acts at the right moment |
+
+---
+
+## Roles
+
+| Role | Count | Ability |
+|---|---|---|
+| Mafia | 2 | Know each other. Each night, coordinate to eliminate a player |
+| Doctor | 1 | Each night, save one player from elimination |
+| Detective | 1 | Each night, investigate one player to learn their role |
+| Villager | 4 | Use discussion and voting to identify and eliminate Mafia |
+
+**Win conditions**
+- Village wins when both Mafia members are eliminated
+- Mafia wins when they equal or outnumber the remaining village
+- Tie in edge cases (e.g. Doctor vs. Mafia in final 2)
+
+---
+
+## Architecture
 
 ```
-agentic_mafia/                  
-├── main.py                     # Game entry point
-├── game_orchestrator.py        # Core game logic and flow
-├── game_state.py              # Game state management
-├── base_agent.py              # Base agent class
-├── role_agents.py             # Role-specific agent implementations
-├── llm_interface.py           # LLM communication interface
-├── structured_responses.py    # Response data structures
-├── agent_personalities.py     # Agent personality definitions
-├── test_llm.py               # LLM interface test script
-├── requirements.txt          # Python dependencies
-├── README.md                 # This file
-└── game_logs/               # Game session logs
-    └── game_YYYYMMDD_HHMMSS/  # Individual game sessions
-        ├── observer_log.txt    # Complete game observer log
-        ├── [agent]_final_context.txt  # Final context for each agent
-        └── game_summary.txt    # Game summary and statistics
+mafia-wing/
+├── Backend (Python)
+│   ├── main.py                   # CLI entry point
+│   ├── game_orchestrator.py      # Core game engine — phases, flow, win conditions
+│   ├── web_orchestrator.py       # Subclass that emits SSE events; round-robin discussion
+│   ├── game_state.py             # GameState, Player, Role, GamePhase, GameAction
+│   ├── base_agent.py             # Abstract agent base class
+│   ├── role_agents.py            # MafiaAgent, DoctorAgent, DetectiveAgent, VillagerAgent
+│   ├── llm_interface.py          # OpenAI API wrapper
+│   ├── structured_responses.py   # Pydantic response schemas
+│   ├── agent_personalities.py    # Player names, personalities, role distribution
+│   ├── game_registry.py          # In-memory session store (game_id → queue + thread)
+│   ├── server.py                 # FastAPI server — POST /api/start, GET /api/stream/:id
+│   ├── requirements.txt          # CLI dependencies
+│   └── requirements_web.txt      # Web server dependencies
+│
+└── web/                          # Next.js 16 frontend
+    ├── app/
+    │   ├── page.tsx              # Setup screen
+    │   └── game/[gameId]/page.tsx # Live game view
+    ├── components/
+    │   ├── SetupScreen.tsx       # API key input + game config
+    │   ├── PhaseHeader.tsx       # Round + phase indicator
+    │   ├── PlayerGrid.tsx        # 8-player grid with roles
+    │   ├── PlayerCard.tsx        # Individual player card (initials, role badge, vote count)
+    │   ├── RoundTabs.tsx         # Per-round Night / Day Discussion tabs (scrollable)
+    │   ├── VotingPanel.tsx       # Live vote tally + trial + defense
+    │   └── GameOverScreen.tsx    # Result, role reveal, conversation history, PDF export
+    ├── hooks/
+    │   ├── useGameState.ts       # Reducer — processes SSE events into UI state
+    │   └── useGameSSE.ts         # SSE connection hook
+    └── lib/
+        └── types.ts              # Shared TypeScript types
 ```
 
-## 🚀 Quick Start
+### SSE Streaming Bridge
 
-### Prerequisites
+The game runs in a background `threading.Thread`. As the engine calls `_observer_info()`, `WebGameOrchestrator` classifies each message into a typed event and puts it on a `queue.Queue`. The FastAPI SSE endpoint reads from the queue via `asyncio.to_thread` and streams events to the browser. A `None` sentinel signals game over.
 
-- Python 3.8+
-- Access to an LLM API (OpenAI-compatible)
-
-### Installation
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd agentic_mafia
 ```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-3. Set up environment variables:
-```bash
-export YOUR_API_KEY="your_api_key_here"
-export BASE_URL="your_api_base_url_here"
-```
-
-### Running the Game
-
-```bash
-python main.py
-```
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-- `YOUR_API_KEY`: Your LLM API key
-- `BASE_URL`: Base URL for your LLM API endpoint
-
-### Game Configuration
-
-Edit `main.py` to customize:
-
-```python
-# Game settings
-num_mafia = 2                      # Number of Mafia players
-model_name = "gemini-2.0-flash-001"  # LLM model to use
-max_discussion_rounds = 2          # Max discussion rounds per day
-log_intermediate_contexts = False   # Enable/disable detailed context logging
-```
-
-### Agent Personalities
-
-Agents have unique personalities defined in `agent_personalities.py`:
-
-- **Miranda**: Extremely suspicious and paranoid
-- **Boris**: Direct and confrontational  
-- **Zoe**: Bubbly and energetic
-- **Victor**: Diplomatic and reasonable
-- **Katherine**: Analytical and methodical
-- **Elena**: Cautious and observant
-- **Rosa**: Intuitive and feeling-based
-- **Sam**: Logical and systematic
-
-## 🎮 Game Features
-
-### Roles
-
-- **Mafia**: Know each other, eliminate villagers at night
-- **Doctor**: Save one player each night
-- **Detective**: Investigate one player each night to learn their role
-- **Villager**: Use discussion and voting to identify Mafia
-
-### Game Flow
-
-1. **Night Phase**: 
-   - Mafia chooses elimination target
-   - Doctor chooses player to save
-   - Detective investigates a player
-
-2. **Day Phase**:
-   - Discussion rounds with reactive conversation
-   - Voting phase with trial and defense
-   - Elimination (if majority reached)
-
-3. **Win Conditions**:
-   - Village wins: All Mafia eliminated
-   - Mafia wins: Equal or outnumber Village
-   - Tie: Special cases (e.g., Doctor vs Mafia in final 2)
-
-### Advanced Features
-
-- **Reactive Discussions**: Agents respond to each other's statements
-- **Defense Phase**: Accused players can defend themselves before final vote
-- **Personality Consistency**: Each agent maintains their communication style
-- **Strategic Deception**: Mafia agents coordinate and mislead
-- **Information Management**: Role-specific knowledge and context
-
-## 📊 Game Logs
-
-Each game session creates a timestamped folder in `game_logs/` containing:
-
-- **observer_log.txt**: Complete game timeline with all actions
-- **[agent]_final_context.txt**: Each agent's final context and knowledge
-- **game_summary.txt**: Game statistics and outcomes
-
-### Log Analysis
-
-```bash
-# View a specific game session
-ls game_logs/game_20240117_143022/
-
-# Read the observer log
-cat game_logs/game_20240117_143022/observer_log.txt
-
-# Check agent's final perspective
-cat game_logs/game_20240117_143022/miranda_final_context.txt
-```
-
-## 🧪 Testing
-
-Test the LLM interface:
-
-```bash
-python test_llm.py
-```
-
-## 🔧 Development
-
-### Adding New Agent Personalities
-
-1. Add personality to `agent_personalities.py`:
-```python
-AGENT_PERSONALITIES["NewAgent"] = "personality description here..."
-```
-
-2. Update role distribution in the same file
-
-### Customizing Game Rules
-
-Modify `game_state.py` for:
-- Win condition logic
-- Game phases
-- Player/action tracking
-
-### Extending Agent Behavior
-
-Override methods in role-specific agents (`role_agents.py`):
-- `participate_in_discussion()`: Discussion behavior
-- `vote()`: Voting logic  
-- `make_night_decision()`: Night actions
-- `defend_self()`: Defense responses
-
-## 📈 System Architecture
-
-### Core Components
-
-1. **GameOrchestrator**: Manages game flow, phases, and agent coordination
-2. **GameState**: Tracks all game information and validates win conditions
-3. **BaseAgent**: Abstract base class for all agent types
-4. **LLMInterface**: Handles communication with language models
-5. **Structured Responses**: Ensures consistent agent response formatting
-
-### Agent Communication
-
-```python
-# Example agent decision process
-context = agent.get_base_context(game_state)  # Get current knowledge
-response = agent.participate_in_discussion(game_state)  # Generate response
-action = GameAction(player_name=agent.name, message=response)  # Record action
-```
-
-### Win Condition System
-
-The system handles complex endgame scenarios:
-
-```python
-def check_win_condition(self) -> Optional[str]:
-    mafia_alive = len(self.get_mafia_players())
-    village_alive = len(self.get_village_players())
-    
-    if mafia_alive == 0:
-        return "village"
-    elif mafia_alive > village_alive:
-        return "mafia"
-    # ... additional edge cases
-```
-
-## 🚧 Upcoming Features
-
-This is Part 1 of a planned 3-part series:
-
-- **Part 2**: Short-term memory integration for dynamic reasoning
-- **Part 3**: Learning and player adaptation with Long-term memory
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **API Key Errors**: Ensure `YOUR_API_KEY` and `BASE_URL` are properly set
-2. **Import Errors**: Run from the `agentic_mafia/` directory
-3. **Model Compatibility**: Some models may require different temperature settings
-
-### Debug Mode
-
-Enable debug mode in `main.py`:
-```python
-game = GameOrchestrator(
-    debug_mode=True,  # Enable debug output
-    log_intermediate_contexts=True  # Log all agent contexts
-)
+Game Thread  →  queue.Queue  →  asyncio.to_thread  →  SSE  →  Browser
 ```
 
 ---
 
-*This multi-agent Mafia system demonstrates advanced AI coordination, strategic reasoning, and social dynamics. Each game session produces unique emergent behaviors and realistic gameplay patterns.*
+## Getting Started
+
+### Prerequisites
+
+- Python 3.8+
+- Node.js 18+
+- OpenAI API key
+
+### 1. Clone
+
+```bash
+git clone https://github.com/ashish-cheruku/mafia-wing.git
+cd mafia-wing
+```
+
+### 2. Backend
+
+```bash
+pip install -r requirements_web.txt
+uvicorn server:app --reload
+# Runs on http://localhost:8000
+```
+
+### 3. Frontend
+
+```bash
+cd web
+cp .env.local.example .env.local
+# Add your OpenAI API key to .env.local
+npm install
+npm run dev
+# Runs on http://localhost:3000
+```
+
+### 4. Environment variables
+
+Create `web/.env.local`:
+
+```env
+NEXT_PUBLIC_OPENAI_API_KEY=sk-...
+```
+
+The key is sent from the browser to the local FastAPI server only — it never leaves your machine.
+
+---
+
+## Running via CLI (no web UI)
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+Edit `main.py` to change model, number of mafia, or discussion rounds.
+
+---
+
+## Web UI Features
+
+**Live game view**
+- Left sidebar: player grid showing all 8 players with role badges (Mafia / Doctor / Detective / Villager), vote counts, and trial indicator
+- Center panel: tabbed per-round view with Night and Day Discussion sub-tabs — all scrollable, auto-follows the active round
+- Right panel: live vote tally (denominator updates as players are eliminated), trial banner, defense speech
+
+**Game over screen**
+- Overview tab: result banner, full role reveal, elimination order
+- Conversation History tab: every round's night events and day discussion in order, with role badges revealed
+- Download PDF: exports the full transcript as a clean document (white background, black text)
+- Play Again / Restart: starts a new game instantly without returning to the setup screen
+
+---
+
+## Game Flow
+
+```
+START
+  └── Night Phase
+        ├── Mafia: discuss and reach consensus on elimination target
+        ├── Doctor: choose a player to save
+        └── Detective: investigate a player → learn their role
+  └── Day Phase
+        ├── Discussion: every alive player speaks (round-robin, random order)
+        └── Voting
+              ├── Each player votes with reasoning
+              ├── Highest-voted player goes to trial
+              ├── Suspect gives defense speech
+              ├── Final vote after defense
+              └── Elimination (or tie → no elimination)
+  └── Win check → repeat or end
+```
+
+---
+
+## Configuration
+
+### Changing the model
+
+In `server.py`, the default model is `gpt-4o-mini`. Pass `model_name` in the POST body to override:
+
+```json
+{ "api_key": "sk-...", "model_name": "gpt-4o" }
+```
+
+### Adding a player
+
+1. Add an entry to `AGENT_PERSONALITIES` in `agent_personalities.py`
+2. Update `ROLE_DISTRIBUTION` to match the new player count
+3. Update the player list in `web/components/SetupScreen.tsx`
+
+### Changing role counts
+
+Update `num_mafia` in the POST request body (default: 2). The engine calculates villager count automatically: `total_players - num_mafia - 2` (doctor + detective).
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| AI agents | OpenAI API (`gpt-4o-mini` default) |
+| Game engine | Python 3, threading, queue |
+| API server | FastAPI, uvicorn |
+| Streaming | Server-Sent Events (SSE) |
+| Frontend | Next.js 16, React, TypeScript |
+| Styling | Tailwind CSS, shadcn/ui, Inter font |
+| PDF export | jsPDF |
+
+---
+
+## Project Structure Notes
+
+- `WebGameOrchestrator` in `web_orchestrator.py` overrides two methods from `GameOrchestrator`: `_observer_info` (to emit SSE events) and `_run_discussion_phase` (to enforce round-robin participation so every player speaks equally). No core game files are modified.
+- `game_registry.py` is a simple in-memory dict mapping `game_id → GameSession`. Each session holds a queue, a thread reference, status, and error state.
+- Role assignment is fully random each game — both the player order and role list are independently shuffled.
