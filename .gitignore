@@ -47,3 +47,7 @@ blog*
 
 # game session logs
 game_logs/
+
+# un-ignore web/lib (shadcn utils + types — root .gitignore has lib/ which would block it)
+!web/lib/
+!web/lib/**
