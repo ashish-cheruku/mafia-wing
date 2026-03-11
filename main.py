@@ -13,36 +13,28 @@ def main():
     """Main entry point for the Mafia game"""
     
     # Check for API key
-    api_key = os.getenv("YOUR_API_KEY")
-    base_url = os.getenv("BASE_URL")
-    
+    api_key = os.getenv("OPENAI_API_KEY")
+
     if not api_key:
-        print("❌ Error: YOUR_API_KEY environment variable not set")
+        print("❌ Error: OPENAI_API_KEY environment variable not set")
         print("Please set your API key:")
-        print("export YOUR_API_KEY=your_api_key_here")
+        print("export OPENAI_API_KEY=your_api_key_here")
         sys.exit(1)
-    
-    if not base_url:
-        print("❌ Error: BASE_URL environment variable not set")
-        print("Please set your base URL:")
-        print("export BASE_URL=your_base_url_here")
-        sys.exit(1)
-    
+
     try:
         # Initialize LLM interface
         startup_msg = "🚀 Starting Mafia Multi-Agent Game (Phase 1)"
         print(startup_msg)
-        
-        model_name = "gemini-2.0-flash-001"
-        # model_name = "gpt-5-nano"
-        
+
+        model_name = "gpt-4o-mini"
+
         model_msg = f"🤖 Using {model_name} for AI agents"
         print(model_msg)
 
-        llm = LLMInterface(api_key=api_key, model_name=model_name, base_url=base_url)
+        llm = LLMInterface(api_key=api_key, model_name=model_name)
         
         # Game configuration
-        num_mafia = 2  # Change this to adjust Mafia count
+        num_mafia = 2  # 2 Mafia for 9 players
         log_intermediate_contexts = False  # Set to False to disable context logging during game
         
         # Create game orchestrator first to get access to logging

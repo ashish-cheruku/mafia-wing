@@ -8,25 +8,17 @@ from dataclasses import fields
 T = TypeVar('T')
 
 class LLMInterface:
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gpt-5-nano", base_url: Optional[str] = None):
-        self.api_key = api_key or os.getenv("YOUR_API_KEY")
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gpt-4o-mini"):
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
-            raise ValueError("YOUR_API_KEY not provided. Set YOUR_API_KEY environment variable or pass api_key parameter.")
-        
-        self.base_url = base_url or os.getenv("BASE_URL")
-        if not self.base_url:
-            raise ValueError("BASE_URL not provided. Set BASE_URL environment variable or pass base_url parameter.")
-        
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url
-        )
+            raise ValueError("OPENAI_API_KEY not provided. Set OPENAI_API_KEY environment variable or pass api_key parameter.")
+
+        self.client = OpenAI(api_key=self.api_key)
         self.model_name = model_name
     
     def generate_response(self, prompt: str, temperature: float = 0.7) -> str:
         try:
-            # gpt-5-nano only supports temperature=1
-            actual_temperature = 1.0 if self.model_name.startswith("gpt-5") else temperature
+            actual_temperature = temperature
             
             response = self.client.chat.completions.create(
                 model=self.model_name,

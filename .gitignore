@@ -44,3 +44,6 @@ Thumbs.db
 
 # blog files
 blog*
+
+# game session logs
+game_logs/

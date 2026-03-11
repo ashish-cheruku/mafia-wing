@@ -27,6 +27,9 @@ class GameOrchestrator:
         
         # Track speaking frequency for discussion balance
         self.speaking_counts = {}  # player_name -> count of times spoken this round
+
+        # Track night events per round for transcript
+        self.night_summary = {}  # round_number -> {mafia_target, doctor_save, detective_check, detective_result, eliminated, saved}
         
         # Create game session directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -73,13 +76,16 @@ class GameOrchestrator:
         print(init_msg)
         self._observer_info(init_msg.replace("🎮 ", ""))
         
-        # Create players from personalities
+        # Create players from personalities — shuffle names so roles are
+        # truly random across players each game (not just roles shuffled
+        # against a fixed name order).
         player_names = list(AGENT_PERSONALITIES.keys())
-        
+        random.shuffle(player_names)
+
         # Create dynamic role distribution based on num_mafia
         total_players = len(player_names)
-        roles = (["mafia"] * self.num_mafia + 
-                ["doctor", "detective"] + 
+        roles = (["mafia"] * self.num_mafia +
+                ["doctor", "detective"] +
                 ["villager"] * (total_players - self.num_mafia - 2))
         random.shuffle(roles)
         
@@ -170,6 +176,7 @@ class GameOrchestrator:
         self.game_state.mafia_target = None
         self.game_state.doctor_save = None
         self.game_state.detective_check = None
+        self.night_summary[self.game_state.round_number] = {}
         
         # 1. Mafia decides who to kill
         self._mafia_night_action()
@@ -274,6 +281,12 @@ class GameOrchestrator:
         """Resolve night phase outcomes"""
         eliminated = None
         
+        ns = self.night_summary.setdefault(self.game_state.round_number, {})
+        ns['mafia_target'] = self.game_state.mafia_target
+        ns['doctor_save'] = self.game_state.doctor_save
+        ns['detective_check'] = self.game_state.detective_check
+        ns['detective_result'] = self.game_state.detective_results.get(self.game_state.detective_check) if self.game_state.detective_check else None
+
         if self.game_state.mafia_target:
             # Check if doctor saved the target
             if self.game_state.mafia_target == self.game_state.doctor_save:
@@ -281,15 +294,19 @@ class GameOrchestrator:
                 self._player_announce(f"🌅 No one was eliminated during the night")
                 self._observer_info(f"Doctor's save prevented {self.game_state.mafia_target} from being eliminated")
                 self._add_action("night_save", f"{self.game_state.mafia_target} was saved from elimination")
+                ns['saved'] = self.game_state.mafia_target
+                ns['eliminated'] = None
             else:
                 # Player is eliminated
                 eliminated = self.game_state.mafia_target
                 self._eliminate_player(eliminated)
                 self._player_announce(f"💀 {eliminated} was eliminated during the night")
                 self._observer_info(f"Mafia successfully eliminated {eliminated}")
-        
+                ns['eliminated'] = eliminated
+                ns['saved'] = None
+
         # Log night summary
-        self._add_action("night_summary", f"Night {self.game_state.round_number} completed. " + 
+        self._add_action("night_summary", f"Night {self.game_state.round_number} completed. " +
                         (f"{eliminated} eliminated" if eliminated else "No one eliminated"))
     
     def _run_day_phase(self):
@@ -750,54 +767,114 @@ Choose your target and provide a clear reason considering the defense."""
         return self.game_state.winner
     
     def _create_comprehensive_logs(self):
-        """Create comprehensive end-game logging with all agent contexts and decisions"""
-        # Use the existing session directory
+        """Write a single transcript.txt with all conversations organized by round."""
         log_dir = self.game_log_dir
-        
         try:
-            # Observer log is already in the directory
-            
-            # Generate individual player state files
-            for player in self.game_state.players:
-                self._create_player_state_file(player, log_dir)
-            
-            # Create comprehensive game summary
-            self._create_game_summary_file(log_dir)
-            
-            print(f"📁 Comprehensive logs created in folder: {log_dir}")
-            self._observer_info(f"Comprehensive logs created in folder: {log_dir}")
-            
+            self._create_transcript(log_dir)
+            print(f"📁 Transcript saved to: {os.path.join(log_dir, 'transcript.txt')}")
+            self._observer_info(f"Transcript saved to: {os.path.join(log_dir, 'transcript.txt')}")
         except Exception as e:
-            print(f"❌ Error creating comprehensive logs: {e}")
-            self._observer_info(f"Error creating comprehensive logs: {e}")
-    
-    def _create_player_state_file(self, player: Player, log_dir: str):
-        """Create simple state file showing final context for this agent"""
-        filename = f"{player.name.lower()}_final_context.txt"
-        filepath = os.path.join(log_dir, filename)
-        
-        # Create a mock agent to get the context they would have seen
-        agent = self._create_mock_agent(player)
-        
+            print(f"❌ Error creating transcript: {e}")
+            self._observer_info(f"Error creating transcript: {e}")
+
+    def _create_transcript(self, log_dir: str):
+        """Single file with all rounds, chats, votes and outcomes — Among Us style."""
+        filepath = os.path.join(log_dir, "transcript.txt")
+
+        # Build role lookup for post-game reveal
+        role_of = {p.name: p.role.value for p in self.game_state.players}
+
+        # Group discussion messages by round
+        disc_by_round: Dict[int, List[GameAction]] = {}
+        for msg in self.game_state.discussion_messages:
+            disc_by_round.setdefault(msg.round_number, []).append(msg)
+
+        total_rounds = self.game_state.round_number
+
         with open(filepath, 'w') as f:
-            # Just write the raw final context, no extra formatting
-            final_context = agent.get_base_context(self.game_state)
-            f.write(final_context)
-    
-    def _create_mock_agent(self, player: Player):
-        """Create a mock agent to generate context for this player"""
-        if player.role == Role.MAFIA:
-            from role_agents import MafiaAgent
-            return MafiaAgent(player.name, player.personality, self.llm)
-        elif player.role == Role.DOCTOR:
-            from role_agents import DoctorAgent
-            return DoctorAgent(player.name, player.personality, self.llm)
-        elif player.role == Role.DETECTIVE:
-            from role_agents import DetectiveAgent
-            return DetectiveAgent(player.name, player.personality, self.llm)
-        else:
-            from role_agents import VillagerAgent
-            return VillagerAgent(player.name, player.personality, self.llm)
+            f.write("=" * 60 + "\n")
+            f.write("          MAFIA GAME — FULL TRANSCRIPT\n")
+            f.write("=" * 60 + "\n\n")
+
+            # Roles (spoiler section at top for observer)
+            f.write("[ ROLES (observer view) ]\n")
+            for p in self.game_state.players:
+                status = "alive" if p.is_alive else "eliminated"
+                f.write(f"  {p.name:<16} {p.role.value:<10}  ({status})\n")
+            f.write("\n")
+
+            for rnd in range(1, total_rounds + 1):
+                f.write("=" * 60 + "\n")
+                f.write(f"  ROUND {rnd}\n")
+                f.write("=" * 60 + "\n\n")
+
+                # ── NIGHT ──────────────────────────────────────────────
+                f.write("[ NIGHT ]\n")
+                ns = self.night_summary.get(rnd, {})
+                if ns.get('mafia_target'):
+                    f.write(f"  Mafia targeted  : {ns['mafia_target']}\n")
+                if ns.get('doctor_save'):
+                    f.write(f"  Doctor saved    : {ns['doctor_save']}\n")
+                if ns.get('detective_check'):
+                    result = ns.get('detective_result', '?')
+                    f.write(f"  Detective checked: {ns['detective_check']} → {result}\n")
+                if ns.get('eliminated'):
+                    f.write(f"  💀 Eliminated    : {ns['eliminated']} [{role_of.get(ns['eliminated'], '?')}]\n")
+                elif ns.get('saved'):
+                    f.write(f"  ✅ Saved (no one died)\n")
+                else:
+                    f.write(f"  No night action this round.\n")
+                f.write("\n")
+
+                # ── DAY DISCUSSION ─────────────────────────────────────
+                f.write("[ DAY DISCUSSION ]\n")
+                messages = disc_by_round.get(rnd, [])
+                if messages:
+                    for msg in messages:
+                        f.write(f"  {msg.player_name}: {msg.message}\n")
+                else:
+                    f.write("  (no discussion)\n")
+                f.write("\n")
+
+                # ── VOTING ─────────────────────────────────────────────
+                round_votes = [v for v in self.game_state.voting_history if v.get('round') == rnd]
+                if round_votes:
+                    f.write("[ VOTING ]\n")
+                    for vr in round_votes:
+                        vr_num = vr.get('voting_round', 1)
+                        f.write(f"  -- Voting Round {vr_num} --\n")
+                        for vote in vr.get('votes', []):
+                            f.write(f"  {vote['voter']} → {vote['target']}  \"{vote['reason']}\"\n")
+
+                        trial = vr.get('trial_candidate')
+                        if trial:
+                            f.write(f"\n  On trial: {trial}\n")
+                            defense = vr.get('defense', '')
+                            if defense:
+                                f.write(f"  {trial} (defense): {defense}\n")
+                            f.write(f"\n  -- Final Vote --\n")
+                            for vote in vr.get('final_votes', []):
+                                f.write(f"  {vote['voter']} → {vote['target']}  \"{vote['reason']}\"\n")
+
+                        eliminated = vr.get('eliminated')
+                        if eliminated:
+                            f.write(f"\n  💀 {eliminated} was eliminated [{role_of.get(eliminated, '?')}]\n")
+
+                        tied = vr.get('tied_candidates')
+                        if tied:
+                            f.write(f"\n  🤝 Tie — no elimination ({', '.join(tied)})\n")
+                    f.write("\n")
+
+            # ── GAME OVER ──────────────────────────────────────────────
+            f.write("=" * 60 + "\n")
+            f.write("  GAME OVER\n")
+            f.write("=" * 60 + "\n")
+            winner = self.game_state.winner or "unknown"
+            f.write(f"  Winner          : {winner.upper()}\n")
+            f.write(f"  Rounds played   : {total_rounds}\n")
+            if self.game_state.elimination_history:
+                f.write(f"  Elimination order: {' → '.join(self.game_state.elimination_history)}\n")
+            f.write("\n")
     
     def _create_game_summary_file(self, log_dir: str):
         """Create comprehensive game summary with statistics"""
