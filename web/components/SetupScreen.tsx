@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -34,6 +35,7 @@ const ROLE_BREAKDOWN = [
 ];
 
 export function SetupScreen({ onStart }: Props) {
+  const router = useRouter();
   const [apiKey, setApiKey] = useState(process.env.NEXT_PUBLIC_OPENAI_API_KEY ?? "");
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
   const [numGames, setNumGames] = useState(1);
@@ -91,6 +93,12 @@ export function SetupScreen({ onStart }: Props) {
         <div className="text-center">
           <h1 className="text-4xl font-bold tracking-tight text-white">Mafia</h1>
           <p className="text-neutral-500 mt-1 text-sm">9 AI agents. One game. No mercy.</p>
+          <button
+            onClick={() => router.push("/sessions")}
+            className="mt-3 text-neutral-600 text-xs hover:text-neutral-300 transition-colors underline underline-offset-2"
+          >
+            View previous sessions →
+          </button>
         </div>
 
         {/* Config card */}

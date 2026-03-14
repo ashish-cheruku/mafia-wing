@@ -262,6 +262,18 @@ async def list_games(limit: int = 20):
         raise HTTPException(status_code=503, detail=f"DB unavailable: {exc}")
 
 
+@app.get("/api/games/{game_id}")
+async def get_game_log(game_id: str):
+    path = f"gamelog-json/{game_id}.json"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Game log not found")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read log: {exc}")
+
+
 @app.get("/health")
 async def health():
     return {"ok": True}
