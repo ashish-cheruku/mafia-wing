@@ -76,6 +76,18 @@ export interface GameUIState {
   rawLogs: string[];
 }
 
+export interface GameSummary {
+  gameId: string;
+  winner: string;
+  roundsPlayed: number;
+  rounds: number[];
+  finalPlayerStates: PlayerFinalState[];
+  eliminationOrder: string[];
+  eliminationByRound: Record<number, string[]>;
+  chatByRound: Record<number, ChatEntry[]>;
+  nightLogByRound: Record<number, string[]>;
+}
+
 export const initialGameState: GameUIState = {
   gameId: null,
   phase: null,

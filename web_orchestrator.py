@@ -45,10 +45,7 @@ _PATTERNS = [
     ("day_elim",        re.compile(r"(.+?) eliminated in final vote \((\w+)\)")),
     ("tie",             re.compile(r"Final vote tied:.*no elimination",          re.IGNORECASE)),
 
-    # Game over
-    ("game_over_v",     re.compile(r"VILLAGE WINS",  re.IGNORECASE)),
-    ("game_over_m",     re.compile(r"MAFIA WINS",    re.IGNORECASE)),
-    ("game_over_t",     re.compile(r"TIE GAME",      re.IGNORECASE)),
+    # Game over — NOT classified here; _announce_winner() emits the rich event with final_player_states
 ]
 
 # Roles that should NOT be classified as discussion lines (to avoid false positives)
@@ -137,15 +134,6 @@ def _classify(msg: str) -> dict | None:
 
         if name == "tie":
             return {"type": "vote_tied", "message": msg}
-
-        if name == "game_over_v":
-            return {"type": "game_over", "winner": "village"}
-
-        if name == "game_over_m":
-            return {"type": "game_over", "winner": "mafia"}
-
-        if name == "game_over_t":
-            return {"type": "game_over", "winner": "tie"}
 
     return None
 

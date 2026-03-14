@@ -553,20 +553,23 @@ class GameOrchestrator:
                         self.game_state.voting_history.append(current_voting_round)
                         return  # Someone was eliminated, exit voting phase
                 else:
-                    self._player_announce(f"\n🤝 Tie between: {', '.join(suspects)} with {max_votes} votes each")
-                    self._observer_info(f"Tie in round {voting_round}: {suspects} with {max_votes} votes each")
-                    
-                    # Record this tied voting round in history
+                    # Tiebreak: randomly select one of the tied candidates for trial
+                    suspect = random.choice(suspects)
+                    self._player_announce(f"\n🤝 Tie between: {', '.join(suspects)} with {max_votes} votes each — {suspect} randomly selected for trial!")
+                    self._observer_info(f"Tie broken randomly: {suspect} goes to trial ({self.agents[suspect].role.value})")
+
                     current_voting_round['tied_candidates'] = suspects
                     current_voting_round['tie_votes'] = max_votes
+                    current_voting_round['trial_candidate'] = suspect
+
+                    defense = self._run_defense_phase(suspect)
+                    current_voting_round['defense'] = defense
+
+                    eliminated = self._run_final_voting(suspect, alive_players, current_voting_round)
+                    if eliminated:
+                        current_voting_round['eliminated'] = eliminated
                     self.game_state.voting_history.append(current_voting_round)
-                    
-                    if voting_round == 3:
-                        self._player_announce("After 3 rounds of voting, still tied. No one is eliminated.")
-                        self._observer_info("No elimination due to 3-round tie")
-                        return
-                    else:
-                        self._player_announce(f"Proceeding to voting round {voting_round + 1}")
+                    return
                         
             voting_round += 1
             
@@ -683,10 +686,12 @@ Choose your target and provide a clear reason considering the defense."""
                 self._observer_info(f"{eliminated_player} eliminated in final vote ({self.agents[eliminated_player].role.value})")
                 return eliminated_player
             else:
-                self._player_announce(f"\n🤝 Final vote tied between: {', '.join(suspects)} with {max_votes} votes each")
-                self._player_announce("No one is eliminated due to the tie.")
-                self._observer_info(f"Final vote tied: {suspects} with {max_votes} votes each - no elimination")
-                return None
+                # Tiebreak: randomly eliminate one of the tied candidates
+                eliminated_player = random.choice(suspects)
+                self._eliminate_player(eliminated_player)
+                self._player_announce(f"\n🤝 Final vote tied between: {', '.join(suspects)} — {eliminated_player} randomly eliminated!")
+                self._observer_info(f"Final vote tied: {suspects} — {eliminated_player} eliminated by random tiebreak ({self.agents[eliminated_player].role.value})")
+                return eliminated_player
         else:
             self._player_announce("\nNo votes cast in final round - no elimination.")
             self._observer_info("No votes in final round")

@@ -1,6 +1,6 @@
 # Mafia Wing
 
-A real-time multiplayer Mafia game powered by 8 AI agents, each with a distinct personality. Watch the agents discuss, deceive, vote, and eliminate each other — streamed live to a web UI.
+A real-time multiplayer Mafia game powered by 8 AI agents, each with a distinct personality. Watch the agents discuss, deceive, vote, and eliminate each other — streamed live to a web UI. Run up to 10 games simultaneously in parallel tabs.
 
 ---
 
@@ -33,7 +33,7 @@ No human input is required — start a game and watch it play out.
 |---|---|---|
 | Mafia | 2 | Know each other. Each night, coordinate to eliminate a player |
 | Doctor | 1 | Each night, save one player from elimination |
-| Detective | 1 | Each night, investigate one player to learn their role |
+| Detective | 1 | Each night, investigate a player to learn their role |
 | Villager | 4 | Use discussion and voting to identify and eliminate Mafia |
 
 **Win conditions**
@@ -58,20 +58,25 @@ mafia-wing/
 │   ├── structured_responses.py   # Pydantic response schemas
 │   ├── agent_personalities.py    # Player names, personalities, role distribution
 │   ├── game_registry.py          # In-memory session store (game_id → queue + thread)
-│   ├── server.py                 # FastAPI server — POST /api/start, GET /api/stream/:id
+│   ├── db.py                     # PostgreSQL client (Neon) — metrics + game history
+│   ├── server.py                 # FastAPI server — /api/start, /api/stream, /api/metrics
 │   ├── requirements.txt          # CLI dependencies
-│   └── requirements_web.txt      # Web server dependencies
+│   ├── requirements_web.txt      # Web server dependencies
+│   ├── .env                      # Backend environment variables (not committed)
+│   └── gamelog-json/             # Auto-generated per-game JSON transcripts
 │
-└── web/                          # Next.js 16 frontend
+└── web/                          # Next.js frontend
     ├── app/
-    │   ├── page.tsx              # Setup screen
-    │   └── game/[gameId]/page.tsx # Live game view
+    │   ├── page.tsx              # Setup screen (API key + number of games)
+    │   ├── game/[gameId]/        # Single game live view
+    │   └── games/                # Multi-game tabbed view (/games?ids=id1,id2,...)
     ├── components/
-    │   ├── SetupScreen.tsx       # API key input + game config
+    │   ├── SetupScreen.tsx       # Config UI — auto-detects server API key
+    │   ├── GameView.tsx          # Reusable game view (used by both single + multi)
     │   ├── PhaseHeader.tsx       # Round + phase indicator
     │   ├── PlayerGrid.tsx        # 8-player grid with roles
-    │   ├── PlayerCard.tsx        # Individual player card (initials, role badge, vote count)
-    │   ├── RoundTabs.tsx         # Per-round Night / Day Discussion tabs (scrollable)
+    │   ├── PlayerCard.tsx        # Individual player card
+    │   ├── RoundTabs.tsx         # Per-round Night / Day Discussion tabs
     │   ├── VotingPanel.tsx       # Live vote tally + trial + defense
     │   └── GameOverScreen.tsx    # Result, role reveal, conversation history, PDF export
     ├── hooks/
@@ -88,6 +93,8 @@ The game runs in a background `threading.Thread`. As the engine calls `_observer
 ```
 Game Thread  →  queue.Queue  →  asyncio.to_thread  →  SSE  →  Browser
 ```
+
+Each game additionally logs every event to `gamelog-json/{game_id}.json` and persists metrics to a Neon PostgreSQL database after the game ends.
 
 ---
 
@@ -106,34 +113,57 @@ git clone https://github.com/ashish-cheruku/mafia-wing.git
 cd mafia-wing
 ```
 
-### 2. Backend
+### 2. Backend environment
+
+Create `.env` in the project root:
+
+```env
+OPENAI_API_KEY=sk-...
+DATABASE_URL=postgresql://user:pass@host/db
+```
+
+`OPENAI_API_KEY` can alternatively be entered in the browser UI — no `.env` needed if you prefer that.
+`DATABASE_URL` is required only for metrics persistence. The game runs fine without it (a warning is logged and the metrics endpoints return 503).
+
+### 3. Backend
 
 ```bash
 pip install -r requirements_web.txt
+set -a && source .env && set +a   # load env vars
 uvicorn server:app --reload
 # Runs on http://localhost:8000
 ```
 
-### 3. Frontend
+### 4. Frontend
 
 ```bash
 cd web
-cp .env.local.example .env.local
-# Add your OpenAI API key to .env.local
 npm install
 npm run dev
 # Runs on http://localhost:3000
 ```
 
-### 4. Environment variables
+No frontend `.env` changes needed — the browser detects the server-configured API key automatically via `GET /api/config`.
 
-Create `web/.env.local`:
+---
 
-```env
-NEXT_PUBLIC_OPENAI_API_KEY=sk-...
-```
+## Environment Variables
 
-The key is sent from the browser to the local FastAPI server only — it never leaves your machine.
+### Backend (`mafia/.env`)
+
+| Variable | Required | Description |
+|---|---|---|
+| `OPENAI_API_KEY` | Optional* | OpenAI API key used by the game engine. If set, the UI skips the key input. |
+| `DATABASE_URL` | Optional | PostgreSQL connection string. Enables metrics persistence and `/api/metrics` endpoints. |
+
+*If not set in env, the key must be entered in the browser UI before starting a game.
+
+### Frontend (`web/.env.local`)
+
+| Variable | Description |
+|---|---|
+| `NEXT_PUBLIC_OPENAI_API_KEY` | Pre-fills the API key input in the UI (optional — server env is preferred). |
+| `NEXT_PUBLIC_BACKEND_URL` | Override backend URL (default: `http://localhost:8000`). |
 
 ---
 
@@ -150,16 +180,31 @@ Edit `main.py` to change model, number of mafia, or discussion rounds.
 
 ## Web UI Features
 
+**Setup screen**
+- Enter your OpenAI API key (or skip if configured server-side)
+- Set number of parallel games (1–10)
+
 **Live game view**
-- Left sidebar: player grid showing all 8 players with role badges (Mafia / Doctor / Detective / Villager), vote counts, and trial indicator
-- Center panel: tabbed per-round view with Night and Day Discussion sub-tabs — all scrollable, auto-follows the active round
-- Right panel: live vote tally (denominator updates as players are eliminated), trial banner, defense speech
+- Left sidebar: player grid showing all 8 players with role badges, vote counts, trial indicator
+- Center panel: tabbed per-round view with Night and Day Discussion sub-tabs — scrollable, auto-follows the active round
+- Right panel: live vote tally, trial banner, defense speech
+
+**Multi-game view** (`/games?ids=...`)
+- Tab bar with per-game status indicators: `●` running, `✓` village wins, `✗` mafia wins, `─` tie
+- All game tabs stay mounted (SSE connections remain open) — only CSS-toggled between active/hidden
+- `← Back` button returns to setup
 
 **Game over screen**
 - Overview tab: result banner, full role reveal, elimination order
-- Conversation History tab: every round's night events and day discussion in order, with role badges revealed
-- Download PDF: exports the full transcript as a clean document (white background, black text)
-- Play Again / Restart: starts a new game instantly without returning to the setup screen
+- Conversation History tab: every round's night events and day discussion, with role badges revealed
+- Download PDF: exports the full transcript as a clean document
+
+**Metrics API**
+- `GET /api/metrics` — aggregated win rates and average rounds
+- `GET /api/metrics/games?limit=20` — last N games from the database
+
+**JSON logs**
+- Every completed game is written to `gamelog-json/{game_id}.json` with full event log, winner, elimination order, and player states
 
 ---
 
@@ -184,14 +229,28 @@ START
 
 ---
 
+## API Reference
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/start` | Start a new game. Body: `{ api_key?, model_name?, num_mafia?, max_discussion_rounds? }` |
+| `GET` | `/api/stream/{game_id}` | SSE stream of game events |
+| `GET` | `/api/status/{game_id}` | Game status (`idle` / `running` / `finished` / `error`) |
+| `GET` | `/api/config` | Returns `{ api_key_configured: bool }` |
+| `GET` | `/api/metrics` | Aggregated stats (total games, win rates, avg rounds) |
+| `GET` | `/api/metrics/games` | Last N games from DB (`?limit=20`) |
+| `GET` | `/health` | Health check |
+
+---
+
 ## Configuration
 
 ### Changing the model
 
-In `server.py`, the default model is `gpt-4o-mini`. Pass `model_name` in the POST body to override:
+Default is `gpt-4o-mini`. Pass `model_name` in the POST body to override:
 
 ```json
-{ "api_key": "sk-...", "model_name": "gpt-4o" }
+{ "model_name": "gpt-4o" }
 ```
 
 ### Adding a player
@@ -214,7 +273,8 @@ Update `num_mafia` in the POST request body (default: 2). The engine calculates 
 | Game engine | Python 3, threading, queue |
 | API server | FastAPI, uvicorn |
 | Streaming | Server-Sent Events (SSE) |
-| Frontend | Next.js 16, React, TypeScript |
+| Database | Neon (PostgreSQL), psycopg2 |
+| Frontend | Next.js, React, TypeScript |
 | Styling | Tailwind CSS, shadcn/ui, Inter font |
 | PDF export | jsPDF |
 
@@ -222,6 +282,7 @@ Update `num_mafia` in the POST request body (default: 2). The engine calculates 
 
 ## Project Structure Notes
 
-- `WebGameOrchestrator` in `web_orchestrator.py` overrides two methods from `GameOrchestrator`: `_observer_info` (to emit SSE events) and `_run_discussion_phase` (to enforce round-robin participation so every player speaks equally). No core game files are modified.
+- `WebGameOrchestrator` in `web_orchestrator.py` overrides two methods from `GameOrchestrator`: `_observer_info` (to emit SSE events) and `_run_discussion_phase` (to enforce round-robin participation). No core game files are modified.
 - `game_registry.py` is a simple in-memory dict mapping `game_id → GameSession`. Each session holds a queue, a thread reference, status, and error state.
 - Role assignment is fully random each game — both the player order and role list are independently shuffled.
+- `db.py` reads `DATABASE_URL` from the environment. If unset, all DB calls raise a `RuntimeError` which is caught and logged — the game continues without persistence.

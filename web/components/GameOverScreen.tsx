@@ -51,7 +51,7 @@ interface Props {
   chatByRound: Record<number, ChatEntry[]>;
   nightLogByRound: Record<number, string[]>;
   eliminationByRound: Record<number, string[]>;
-  onPlayAgain: () => void;
+  onPlayAgain?: () => void;
 }
 
 type Tab = "overview" | "history";
@@ -175,7 +175,7 @@ export function GameOverScreen({
   }
 
   return (
-    <div className="h-screen bg-neutral-950 text-white flex flex-col">
+    <div className="h-full bg-neutral-950 text-white flex flex-col">
 
       {/* Header */}
       <header className="flex items-center gap-4 px-6 h-14 border-b border-neutral-800 shrink-0">
@@ -209,13 +209,15 @@ export function GameOverScreen({
           </Button>
 
           {/* Play Again */}
-          <Button
-            size="sm"
-            onClick={onPlayAgain}
-            className="h-7 text-xs bg-white text-neutral-950 hover:bg-neutral-200 font-semibold"
-          >
-            Play Again
-          </Button>
+          {onPlayAgain && (
+            <Button
+              size="sm"
+              onClick={onPlayAgain}
+              className="h-7 text-xs bg-white text-neutral-950 hover:bg-neutral-200 font-semibold"
+            >
+              Play Again
+            </Button>
+          )}
         </div>
       </header>
 
