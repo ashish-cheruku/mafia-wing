@@ -38,7 +38,8 @@ export function SetupScreen({ onStart }: Props) {
   const router = useRouter();
   const [apiKey, setApiKey] = useState(process.env.NEXT_PUBLIC_OPENAI_API_KEY ?? "");
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
-  const [numGames, setNumGames] = useState(1);
+  const [numGamesStr, setNumGamesStr] = useState("1");
+  const numGames = Math.max(1, Math.min(10, parseInt(numGamesStr) || 1));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +54,11 @@ export function SetupScreen({ onStart }: Props) {
   async function handleStart() {
     if (!apiKeyConfigured && !apiKey.trim()) {
       setError("API key is required.");
+      return;
+    }
+    const parsedGames = parseInt(numGamesStr);
+    if (!parsedGames || parsedGames <= 0) {
+      setError("Number of games must be at least 1.");
       return;
     }
     setError(null);
@@ -145,8 +151,9 @@ export function SetupScreen({ onStart }: Props) {
                 type="number"
                 min={1}
                 max={10}
-                value={numGames}
-                onChange={(e) => setNumGames(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                value={numGamesStr}
+                onChange={(e) => setNumGamesStr(e.target.value)}
+                onBlur={() => setNumGamesStr(String(numGames))}
                 className="bg-neutral-800 border-neutral-700 text-white focus-visible:ring-neutral-600"
               />
               {numGames > 1 && (
