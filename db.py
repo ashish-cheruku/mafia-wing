@@ -28,8 +28,13 @@ def init_db():
                     rounds_played INT,
                     elimination_order JSONB,
                     player_data JSONB,
-                    log_file_path TEXT
+                    log_file_path TEXT,
+                    session_id TEXT
                 );
+            """)
+            # Add session_id to existing tables that don't have it
+            cur.execute("""
+                ALTER TABLE games ADD COLUMN IF NOT EXISTS session_id TEXT;
             """)
         conn.commit()
         print("[INFO] DB initialized")
@@ -38,14 +43,16 @@ def init_db():
 
 
 def save_game(game_id, model, num_mafia, num_players, winner,
-              rounds_played, elimination_order, player_data, log_file_path):
+              rounds_played, elimination_order, player_data, log_file_path,
+              session_id=None):
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO games (game_id, model, num_mafia, num_players, winner,
-                                   rounds_played, elimination_order, player_data, log_file_path)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                   rounds_played, elimination_order, player_data, log_file_path,
+                                   session_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (game_id) DO NOTHING;
             """, (
                 game_id, model, num_mafia, num_players, winner,
@@ -53,6 +60,7 @@ def save_game(game_id, model, num_mafia, num_players, winner,
                 json.dumps(elimination_order),
                 json.dumps(player_data),
                 log_file_path,
+                session_id,
             ))
         conn.commit()
     except Exception as exc:
@@ -92,6 +100,67 @@ def get_metrics():
             "mafia_win_rate": round(mafia_wins / total, 3) if total else 0.0,
             "village_win_rate": round(village_wins / total, 3) if total else 0.0,
         }
+    finally:
+        conn.close()
+
+
+def list_sessions(limit: int = 50):
+    """Return one row per session (group of parallel games), newest first."""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    COALESCE(session_id, game_id) AS session_id,
+                    MIN(created_at) AS created_at,
+                    COUNT(*) AS num_games,
+                    array_agg(game_id ORDER BY created_at) AS game_ids,
+                    COUNT(*) FILTER (WHERE winner = 'village') AS village_wins,
+                    COUNT(*) FILTER (WHERE winner = 'mafia') AS mafia_wins,
+                    COUNT(*) FILTER (WHERE winner NOT IN ('village','mafia') AND winner IS NOT NULL) AS other_wins,
+                    MAX(model) AS model,
+                    MAX(num_mafia) AS num_mafia,
+                    MAX(num_players) AS num_players
+                FROM games
+                GROUP BY COALESCE(session_id, game_id)
+                ORDER BY MIN(created_at) DESC
+                LIMIT %s;
+            """, (limit,))
+            cols = [desc[0] for desc in cur.description]
+            rows = cur.fetchall()
+        result = []
+        for row in rows:
+            d = dict(zip(cols, row))
+            if d.get("created_at"):
+                d["created_at"] = d["created_at"].isoformat()
+            if d.get("game_ids") is None:
+                d["game_ids"] = []
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def get_session_games(session_id: str):
+    """Return all game rows for a session_id (or single game if session_id==game_id)."""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT game_id, created_at, model, num_mafia, num_players, winner, rounds_played
+                FROM games
+                WHERE COALESCE(session_id, game_id) = %s
+                ORDER BY created_at ASC;
+            """, (session_id,))
+            cols = [desc[0] for desc in cur.description]
+            rows = cur.fetchall()
+        result = []
+        for row in rows:
+            d = dict(zip(cols, row))
+            if d.get("created_at"):
+                d["created_at"] = d["created_at"].isoformat()
+            result.append(d)
+        return result
     finally:
         conn.close()
 

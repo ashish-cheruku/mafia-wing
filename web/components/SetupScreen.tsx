@@ -61,12 +61,17 @@ export function SetupScreen({ onStart }: Props) {
     try {
       const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
+      const sessionId = crypto.randomUUID();
+
       const results = await Promise.all(
         Array.from({ length: numGames }, () =>
           fetch(`${BACKEND}/api/start`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ api_key: apiKeyConfigured ? "" : apiKey }),
+            body: JSON.stringify({
+              api_key: apiKeyConfigured ? "" : apiKey,
+              session_id: sessionId,
+            }),
           }).then(async (res) => {
             if (!res.ok) {
               const body = await res.json().catch(() => ({}));

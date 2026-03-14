@@ -56,6 +56,7 @@ class StartRequest(BaseModel):
     model_name: str = "gpt-4o-mini"
     num_mafia: int = 2
     max_discussion_rounds: int = 2
+    session_id: str = ""       # groups parallel games into a session
 
 
 class StartResponse(BaseModel):
@@ -101,7 +102,8 @@ def _write_json_log(game_id: str, events_log: list, model_name: str, num_mafia: 
         print(f"[WARN] Could not write JSON log for {game_id}: {exc}")
 
 
-def _save_to_db(game_id: str, events_log: list, model_name: str, num_mafia: int):
+def _save_to_db(game_id: str, events_log: list, model_name: str, num_mafia: int,
+                session_id: str = ""):
     try:
         winner = None
         elimination_order = []
@@ -124,6 +126,7 @@ def _save_to_db(game_id: str, events_log: list, model_name: str, num_mafia: int)
         db.save_game(
             game_id, model_name, num_mafia, num_players, winner,
             rounds_played, elimination_order, player_data, log_file_path,
+            session_id=session_id or None,
         )
     except Exception as exc:
         print(f"[WARN] Could not save to DB for {game_id}: {exc}")
@@ -134,7 +137,7 @@ def _save_to_db(game_id: str, events_log: list, model_name: str, num_mafia: int)
 # ---------------------------------------------------------------------------
 
 def _run_game(game_id: str, api_key: str, model_name: str,
-              num_mafia: int, max_discussion_rounds: int):
+              num_mafia: int, max_discussion_rounds: int, session_id: str = ""):
     session = get_session(game_id)
     if session is None:
         return
@@ -166,7 +169,7 @@ def _run_game(game_id: str, api_key: str, model_name: str,
         emit({"type": "error", "message": str(exc)})
     finally:
         _write_json_log(game_id, events_log, model_name, num_mafia)
-        _save_to_db(game_id, events_log, model_name, num_mafia)
+        _save_to_db(game_id, events_log, model_name, num_mafia, session_id=session_id)
         # Sentinel so SSE generator knows to close
         session.event_queue.put(None)
 
@@ -192,7 +195,7 @@ async def start_game(req: StartRequest):
     t = threading.Thread(
         target=_run_game,
         args=(game_id, resolved_key, req.model_name,
-              req.num_mafia, req.max_discussion_rounds),
+              req.num_mafia, req.max_discussion_rounds, req.session_id),
         daemon=True,
     )
     session.thread = t
@@ -258,6 +261,27 @@ async def get_metrics():
 async def list_games(limit: int = 20):
     try:
         return await asyncio.to_thread(db.list_games, limit)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"DB unavailable: {exc}")
+
+
+@app.get("/api/sessions")
+async def list_sessions(limit: int = 50):
+    try:
+        return await asyncio.to_thread(db.list_sessions, limit)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"DB unavailable: {exc}")
+
+
+@app.get("/api/sessions/{session_id}")
+async def get_session_games(session_id: str):
+    try:
+        games = await asyncio.to_thread(db.get_session_games, session_id)
+        if not games:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return games
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"DB unavailable: {exc}")
 
